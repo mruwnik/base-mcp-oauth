@@ -4,7 +4,6 @@ import secrets
 import time
 from collections.abc import Callable
 
-import bcrypt
 from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,

@@ -103,8 +103,8 @@ def create_oauth_server(
 
     # Configure auth settings
     auth_settings = AuthSettings(
-        issuer_url=cast(AnyHttpUrl, config.server_url),
-        resource_server_url=cast(AnyHttpUrl, config.server_url),
+        issuer_url=cast(AnyHttpUrl, config.resource_url),
+        resource_server_url=cast(AnyHttpUrl, config.resource_url),
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             valid_scopes=config.supported_scopes,
