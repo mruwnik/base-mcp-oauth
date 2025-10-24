@@ -1,136 +1,145 @@
 # MCP OAuth Server
 
-Portable OAuth implementation for MCP servers that handles auth/discovery, allowing developers to implement tools without worrying about auth infrastructure.
+A Python library that adds OAuth 2.0 authentication to MCP servers with minimal setup.
 
-## Features
-
-- SQLite-based session management
-- Bcrypt password hashing
-- OAuth 2.0 authorization code flow with PKCE
-- Refresh token support
-- Simple file-based user management
-
-## Quick Start
-
-1. Install dependencies:
-
-Using uv (recommended):
+## Installation
 
 ```bash
+pip install -e .
+# or
 uv pip install -e .
 ```
 
-Or using pip:
+## Quick Start
 
-```bash
-pip install -r requirements.txt
+### 1. Decide how you want to store users
+
+e.g. make a `users.txt` file like:
+
+```
+alice:cows
+bob:dogs
 ```
 
-2. Create a user account:
-
-Create `users.txt` in the repo root:
-
-```bash
-echo "alice:$(python3 -c 'import bcrypt; print(bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode())')" > users.txt
-```
-
-3. Run the server:
-
-```bash
-python3 -m src.server
-```
-
-The server will auto-create `auth.db` on first run.
-
-4. Test with the example client:
-
-```bash
-python3 examples/client_example.py
-```
-
-## Configuration with MCP Clients
-
-To use with Claude Desktop or other MCP clients, add to your configuration file:
-
-```json
-{
-  "mcpServers": {
-    "example-oauth-server": {
-      "command": "python3",
-      "args": ["-m", "src.server"],
-      "cwd": "/absolute/path/to/mcp-base",
-      "env": {}
-    }
-  }
-}
-```
-
-See `examples/claude_desktop_config.json` for a full example.
-
-## Architecture
-
-### Storage
-
-- `auth.db` - SQLite database (auto-created)
-- `users.txt` - username:password_hash pairs
-
-### Database Schema
-
-- `users` - user credentials
-- `oauth_flows` - authorization flow state
-- `sessions` - access tokens
-- `refresh_tokens` - refresh tokens
-
-### Configuration
-
-Default token lifetimes (configurable in code):
-
-- Access tokens: 30 days
-- Refresh tokens: 30 days
-
-## Extending the Server
-
-To add your own tools, edit `src/server.py`:
+### 2. Create your MCP server
 
 ```python
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="your_tool",
-            description="Description of your tool",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "param": {"type": "string"}
-                }
-            }
-        )
-    ]
+from mcp_base import create_oauth_server
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "your_tool":
-        # Your tool implementation
-        return [TextContent(type="text", text="Result")]
+
+def check_user(username: str, password: str) -> int:
+  with open("users.txt") as f:
+    for i, line in enumerate(f.readlines()):
+      if line == f"{username}:{password}":
+        return i
+
+# Create server with defaults
+mcp = create_oauth_server("my-app", check_user)
+
+# Add your tools
+@mcp.tool()
+def echo(message: str) -> str:
+    """Echo back the input message."""
+    return f"Echo: {message}"
+
+# Run the server
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
 
-## Development
-
-Run tests:
+### 3. Run it
 
 ```bash
-pytest
+python your_server.py
 ```
 
-Lint:
+That's it! Your MCP server now has OAuth authentication running on `http://localhost:3000`.
 
-```bash
-ruff check src tests
+## User config
+
+OAuth requires a bunch of complicated flows, but often you just want a user + password. This
+is what this library is for. You come up with your desired way of checking users, and provide
+a function that returns the id of a valid user, and None if the user and password combination is
+incorrect. The library takes care of the rest for you.
+
+## Login screen
+
+The OAuth flow requires you to verify that a user going through the flow is a valid user.
+A default HTML login page is provided by default that requests a username and password.
+If you want to customize this, you can either provide your own HTML that is to be used, via
+the `login_template` parameter, or provide a custom handler that will take care of incoming requests.
+
+### Login templates
+
+A login template is a chunk of HTML. This will be displayed to the user for them to provide credentials.
+The default handler expects a form with a `state` value for OAuth stuff, and a `username` and `password`
+with the user credentials. The following macros will be replaced in the HTML (by using a very simple
+string replace, so make sure to use these exact strings):
+
+* `{state}` - the OAuth state, as provided in the GET URL or POST form data
+* `{username}` - you can use this to keep the username if an invalid password was provided
+* `{app_name}` - the name of your app, as provided to `create_oauth_server`
+* `{error_message}` - any exception that happened during validation
+
+### Custom login handler
+
+The OAuth flow requires `/oauth/login` to be called via a GET request, and for a subsequent redirect
+to an appropriate endpoint for the flow to continue. The first part is hard coded, while the redirect
+is provided by any client when they initialise the flow. That being said, you can control how this happens.
+
+To use your own handler, provide a function with the following signature to the `login_handler` of the
+`create_oauth_server` call:
+
+```python
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse
+
+async def login_handler(request: Request, complete_user_checker: Callable[[str, str, str], str]) -> HTMLResponse | RedirectResponse:
+  (...)
 ```
 
-Format:
+`request` is the Starlette request. `complete_user_checker` is a function that receives the OAuth
+state, usernam and password, and returns a redirect url if correct, or raises a ValueError if anything
+is incorrect.
 
-```bash
-ruff format src tests
+Basically, you extract the state from the request (`request.query_params.get("state")`), extract the
+username and password however you want, then do a:
+
+```python
+try:
+  redirect_url = complete_user_checker(state, username, password)
+  return RedirectResponse(url=redirect_url, status_code=302)
+except ValueError as e:
+  # handle the error
 ```
+
+## Custom Configuration
+
+```python
+from mcp_base import create_oauth_server, ServerConfig
+
+config = ServerConfig(
+    host="localhost",
+    port=8000,
+    db_path="my_auth.db",
+    supported_scopes=["read", "write", "admin"],
+    required_scopes=["read"],
+    debug=True,
+)
+
+mcp = create_oauth_server("my-app", config=config)
+```
+
+## Examples
+
+See the [examples/](examples/) directory for complete examples:
+
+* `simple_server.py` - Basic usage
+* `custom_server.py` - Custom configuration  
+* `file_credentials_server.py` - users are defined in `users.txt`
+
+# Testing
+
+It's non trivial to test MCP stuff manually, so you probably want something like the
+[MCP inspector](https://github.com/modelcontextprotocol/inspector) before you actually
+try using a model with things.

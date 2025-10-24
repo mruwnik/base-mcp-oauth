@@ -84,31 +84,6 @@ class Database:
         finally:
             conn.close()
 
-    def load_users_from_file(self, users_file: str = "users.txt"):
-        """Load users from file into database."""
-        users_path = Path(users_file)
-        if not users_path.exists():
-            return
-
-        with self._connection() as conn:
-            for line in users_path.read_text().strip().split("\n"):
-                if ":" not in line:
-                    continue
-                username, password_hash = line.split(":", 1)
-                conn.execute(
-                    "INSERT OR REPLACE INTO users (username, password_hash) VALUES (?, ?)",
-                    (username, password_hash),
-                )
-
-    def get_user(self, username: str) -> dict | None:
-        """Get user by username."""
-        with self._connection() as conn:
-            row = conn.execute(
-                "SELECT id, username, password_hash FROM users WHERE username = ?",
-                (username,),
-            ).fetchone()
-            return dict(row) if row else None
-
     def create_client(
         self,
         client_id: str,

@@ -2,7 +2,7 @@
 
 import secrets
 import time
-from typing import Any
+from collections.abc import Callable
 
 import bcrypt
 from mcp.server.auth.provider import (
@@ -14,7 +14,6 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-from mcp_base import settings
 from mcp_base.database import Database
 
 # Configuration
@@ -24,16 +23,15 @@ AUTHORIZATION_CODE_LIFETIME = 10 * 60  # 10 minutes
 SUPPORTED_SCOPES = ["read", "write", "user"]
 
 
-class MinimalOAuthProvider(OAuthAuthorizationServerProvider):
+UserChecker = Callable[[str, str], int | None]
+
+
+class PasswordOAuthProvider(OAuthAuthorizationServerProvider):
     """Minimal OAuth provider using SQLite for state management."""
 
-    def __init__(self, db_path: str = "auth.db", users_file: str = "users.txt"):
+    def __init__(self, user_checker: UserChecker, db_path: str = "auth.db"):
         self.db = Database(db_path)
-        self.db.load_users_from_file(users_file)
-
-    def _verify_password(self, password: str, password_hash: str) -> bool:
-        """Verify password against bcrypt hash."""
-        return bcrypt.checkpw(password.encode(), password_hash.encode())
+        self.user_checker = user_checker
 
     def _generate_token(self) -> str:
         """Generate a secure random token."""
@@ -121,14 +119,14 @@ class MinimalOAuthProvider(OAuthAuthorizationServerProvider):
         if flow["expires_at"] < int(time.time()):
             raise ValueError("Authorization request expired")
 
-        # Authenticate user
-        user = self.db.get_user(username)
-        if not user or not self._verify_password(password, user["password_hash"]):
+        # Authenticate user - returns user_id or None
+        user_id = self.user_checker(username, password)
+        if user_id is None:
             raise ValueError("Invalid credentials")
 
         # Generate authorization code
         code = self._generate_token()
-        self.db.update_oauth_flow(state, code, user["id"])
+        self.db.update_oauth_flow(state, code, user_id)
 
         return f"{flow['redirect_uri']}?code={code}&state={state}"
 
@@ -253,7 +251,3 @@ class MinimalOAuthProvider(OAuthAuthorizationServerProvider):
         """Revoke a token."""
         if token_type_hint == "refresh_token" or not token_type_hint:
             self.db.revoke_refresh_token(token)
-
-    def cleanup_expired(self):
-        """Manually trigger cleanup of expired tokens."""
-        self.db.cleanup_expired()
