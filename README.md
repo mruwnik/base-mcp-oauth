@@ -138,6 +138,48 @@ See the [examples/](examples/) directory for complete examples:
 * `custom_server.py` - Custom configuration  
 * `file_credentials_server.py` - users are defined in `users.txt`
 
+# Deployment
+
+If you want to run behind an Nginx proxy, then the following should do the trick:
+
+```
+server {
+    server_name <your domain>;
+
+    # Basic security headers
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Rate limiting (optional)
+    # limit_req zone=api burst=20 nodelay;
+
+    # Handle MCP endpoint redirect internally
+
+    # Proxy everything to your memory app
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+```
+
+Where `<your domain>` should be changed to whatever your actual domain is, and `http://localhost:3000` to
+whereever you're running your MCP server.
+
 # Testing
 
 It's non trivial to test MCP stuff manually, so you probably want something like the

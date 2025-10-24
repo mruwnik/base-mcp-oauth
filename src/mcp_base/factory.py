@@ -103,8 +103,8 @@ def create_oauth_server(
 
     # Configure auth settings
     auth_settings = AuthSettings(
-        issuer_url=cast(AnyHttpUrl, config.resource_url),
-        resource_server_url=cast(AnyHttpUrl, config.resource_url),
+        issuer_url=cast(AnyHttpUrl, config.issuer_url or config.resource_url),
+        resource_server_url=cast(AnyHttpUrl, config.resource_server_url or config.resource_url),
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             valid_scopes=config.supported_scopes,
@@ -121,6 +121,7 @@ def create_oauth_server(
         host=config.host,
         port=config.port,
         debug=True,
+        stateless_http=True,
     )
 
     login_handler = login_handler or make_login_handler(name, login_template)

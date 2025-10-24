@@ -20,7 +20,6 @@ class ServerConfig:
         debug: Enable debug mode (default: False)
     """
 
-    server_url: str | None = None
     host: str = "localhost"
     port: int = 3000
     db_path: str = "auth.db"
@@ -31,6 +30,10 @@ class ServerConfig:
 
     default_scopes: list[str] = field(default_factory=lambda: ["read"])
     required_scopes: list[str] = field(default_factory=lambda: ["read"])
+
+    server_url: str | None = None
+    resource_server_url: str | None = None
+    issuer_url: str | None = None
 
     @property
     def resource_url(self) -> str:
